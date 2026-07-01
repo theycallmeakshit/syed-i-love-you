@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Karachi Flood Guard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #121a2b;
+    --border: #233047;
+    --text: #e6edf7;
+    --muted: #93a1b8;
+    --high: #ef4444;
+    --moderate: #f59e0b;
+    --low: #eab308;
+    --none: #22c55e;
+    --accent: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    height: 100vh;
+  }
+  #map { flex: 1; }
+  #sidebar {
+    width: 360px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .subtitle { color: var(--muted); font-size: 12.5px; margin-bottom: 18px; }
+  .zone-card {
+    background: #0e1626;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .zone-card .name { font-weight: 600; font-size: 14px; }
+  .zone-card .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-top: 6px;
+  }
+  .badge.HIGH { background: var(--high); color: #fff; }
+  .badge.MODERATE { background: var(--moderate); color: #1a1300; }
+  .badge.LOW { background: var(--low); color: #1a1300; }
+  .badge.NONE { background: var(--none); color: #06210f; }
+  form { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  select, textarea, button {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0e1626;
+    color: var(--text);
+    font-size: 13px;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  button {
+    margin-top: 14px;
+    background: var(--accent);
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 10px;
+  }
+  button:hover { background: #2563eb; }
+  #status { font-size: 12px; margin-top: 8px; color: var(--muted); }
+  .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  #reports-feed { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .report-item {
+    background: #0e1626;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 12.5px;
+  }
+  .report-item.new { border-left-color: #22c55e; animation: flash 1.5s ease-out; }
+  @keyframes flash { 0% { background: #123320; } 100% { background: #0e1626; } }
+  .report-item .rtype { font-weight: 600; }
+  .report-item .rzone { color: var(--accent); font-size: 11.5px; }
+  .report-item .rdesc { color: var(--muted); margin-top: 3px; }
+  .report-item .rtime { color: var(--muted); font-size: 10.5px; margin-top: 4px; }
+  .hazard-icon { margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="sidebar">
+  <h1>🌧️ Karachi Flood Guard</h1>
+  <div class="subtitle">Live rainfall risk + community hazard reports. Click a zone marker on the map to submit a report there.</div>
+
+  <div id="zone-list">Loading zones…</div>
+
+  <form id="report-form">
+    <strong style="font-size:13px;">Submit a hazard report</strong>
+    <div class="hint" id="selected-zone">Click a zone on the map first →</div>
+    <div id="advisory-box" style="display:none; background:#1a1200; border:1px solid #f59e0b; border-radius:8px; padding:10px 12px; margin-top:10px; font-size:12.5px; color:#fde68a;"></div>
+
+    <label>Hazard type</label>
+    <select id="hazard_type" required>
+      <option value="waterlogging">Waterlogging</option>
+      <option value="broken_road">Broken / damaged road</option>
+      <option value="open_manhole">Open manhole cover</option>
+      <option value="power_outage">No electric supply</option>
+      <option value="road_blocked">Road blocked</option>
+    </select>
+
+    <label>Description</label>
+    <textarea id="description" placeholder="e.g. Water knee-deep near the main crossing, avoid this route"></textarea>
+
+    <button type="submit">Submit report</button>
+    <div id="status"></div>
+  </form>
+
+  <div id="reports-feed">
+    <strong style="font-size:13px;">Community Reports</strong>
+    <div id="feed-list" style="margin-top:10px;">Loading…</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const map = L.map('map').setView([24.8800, 67.0700], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+let selectedZoneId = null;
+const markers = {};
+
+const levelColor = { HIGH: '#ef4444', MODERATE: '#f59e0b', LOW: '#eab308', NONE: '#22c55e' };
+const hazardIcon = {
+  waterlogging: '💧', broken_road: '🕳️', open_manhole: '⚠️',
+  power_outage: '⚡', road_blocked: '🚧',
+};
+const hazardLabel = {
+  waterlogging: 'Waterlogging', broken_road: 'Broken road', open_manhole: 'Open manhole',
+  power_outage: 'Power outage', road_blocked: 'Road blocked',
+};
+let lastKnownReportId = 0;
+let zoneNameById = {};
+
+function timeAgo(isoString) {
+  const diffMs = Date.now() - new Date(isoString + 'Z').getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
+async function loadReportsFeed() {
+  const res = await fetch('/api/reports');
+  const reports = await res.json();
+
+  const feedEl = document.getElementById('feed-list');
+  feedEl.innerHTML = '';
+
+  reports.slice(0, 12).forEach(r => {
+    const zoneName = zoneNameById[r.zone_id] || r.zone_id;
+    const isNew = r.id > lastKnownReportId && lastKnownReportId !== 0;
+
+    const item = document.createElement('div');
+    item.className = 'report-item' + (isNew ? ' new' : '');
+    item.innerHTML = `
+      <div><span class="hazard-icon">${hazardIcon[r.hazard_type] || '•'}</span><span class="rtype">${hazardLabel[r.hazard_type] || r.hazard_type}</span></div>
+      <div class="rzone">${zoneName}</div>
+      ${r.description ? `<div class="rdesc">${r.description}</div>` : ''}
+      <div class="rtime">${timeAgo(r.reported_at)} &middot; ${r.source}</div>
+    `;
+    feedEl.appendChild(item);
+  });
+
+  if (reports.length > 0) lastKnownReportId = Math.max(...reports.map(r => r.id));
+}
+
+async function loadOverview() {
+  const res = await fetch('/api/risk-overview');
+  const data = await res.json();
+
+  const listEl = document.getElementById('zone-list');
+  listEl.innerHTML = '';
+
+  data.forEach(z => {
+    // marker
+    if (!markers[z.zone_id]) {
+      const marker = L.circleMarker([z.lat ?? 0, z.lng ?? 0], {
+        radius: 10, color: '#fff', weight: 1, fillOpacity: 0.9
+      });
+      markers[z.zone_id] = marker;
+    }
+  });
+
+  // need lat/lng per zone -> fetch zones separately to position markers correctly
+  const zonesRes = await fetch('/api/zones');
+  const zones = await zonesRes.json();
+  const zoneById = Object.fromEntries(zones.map(z => [z.id, z]));
+  zoneNameById = Object.fromEntries(zones.map(z => [z.id, z.name]));
+
+  data.forEach(z => {
+    const zinfo = zoneById[z.zone_id];
+    if (!zinfo) return;
+
+    let marker = markers[z.zone_id];
+    marker.setLatLng([zinfo.lat, zinfo.lng]);
+    marker.setStyle({ fillColor: levelColor[z.level] || '#3b82f6' });
+    marker.bindPopup(`<strong>${z.zone_name}</strong><br>Risk: ${z.level} (${z.score}/10)<br>Rain: ${z.rainfall_mm}mm | Reports: ${z.recent_reports}`);
+    marker.on('click', () => selectZone(z.zone_id, z.zone_name));
+    if (!map.hasLayer(marker)) marker.addTo(map);
+
+    const card = document.createElement('div');
+    card.className = 'zone-card';
+    card.innerHTML = `
+      <div class="name">${z.zone_name}</div>
+      <div class="meta">Rainfall: ${z.rainfall_mm}mm &middot; Recent reports: ${z.recent_reports}</div>
+      <span class="badge ${z.level}">${z.level} RISK (${z.score}/10)</span>
+    `;
+    card.onclick = () => selectZone(z.zone_id, z.zone_name);
+    listEl.appendChild(card);
+  });
+}
+
+async function selectZone(id, name) {
+  selectedZoneId = id;
+  document.getElementById('selected-zone').textContent = `Reporting for: ${name}`;
+  document.getElementById('selected-zone').style.color = '#3b82f6';
+
+  const box = document.getElementById('advisory-box');
+  box.style.display = 'none';
+
+  // Advisory Agent call — ONLY happens here, on click. Never on auto-refresh.
+  const res = await fetch(`/api/zones/${id}/advisory`);
+  const data = await res.json();
+
+  if (data.advisory) {
+    box.style.display = 'block';
+    box.innerHTML = `⚠️ <strong>${data.level} RISK ADVISORY</strong><br>${data.advisory}`;
+  }
+}
+
+document.getElementById('report-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const statusEl = document.getElementById('status');
+  if (!selectedZoneId) {
+    statusEl.textContent = 'Please click a zone marker on the map first.';
+    statusEl.style.color = '#ef4444';
+    return;
+  }
+
+  const zonesRes = await fetch('/api/zones');
+  const zones = await zonesRes.json();
+  const zone = zones.find(z => z.id === selectedZoneId);
+
+  const body = {
+    zone_id: selectedZoneId,
+    hazard_type: document.getElementById('hazard_type').value,
+    description: document.getElementById('description').value,
+    lat: zone.lat,
+    lng: zone.lng,
+  };
+
+  const res = await fetch('/api/reports', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (res.ok) {
+    statusEl.textContent = 'Report submitted ✓';
+    statusEl.style.color = '#22c55e';
+    document.getElementById('description').value = '';
+    loadOverview();
+    loadReportsFeed();
+  } else {
+    statusEl.textContent = 'Error submitting report.';
+    statusEl.style.color = '#ef4444';
+  }
+});
+
+loadOverview().then(loadReportsFeed);
+setInterval(() => { loadOverview(); loadReportsFeed(); }, 30000); // refresh every 30s
+</script>
+
+</body>
+</html>
