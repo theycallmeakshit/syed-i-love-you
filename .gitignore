@@ -1,6 +1,8 @@
-﻿venv/
+venv/
+.venv/
 __pycache__/
 *.pyc
 flood_guard.db
 .env
+*.log
 server.log

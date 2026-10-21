@@ -1,10 +1,10 @@
 """
-Advisory Agent — uses Gemini to turn a raw risk score into a plain-language
+Advisory Agent : uses Gemini to turn a raw risk score into a plain-language
 warning for citizens.
 
 Design decisions (deliberate, not accidental):
 - Only called for MODERATE/HIGH risk zones. LOW/NONE risk doesn't need an
-  AI-generated warning — that's wasted quota for zero user value.
+  AI-generated warning (that's wasted quota for zero user value).
 - Only triggered on-click (user selects a zone), NOT on the 30s auto-refresh
   poll. Auto-refresh recalculates the numeric risk score (cheap, local
   compute); it never calls Gemini. This is what keeps this within Gemini's
@@ -34,7 +34,7 @@ async def get_advisory(zone_name: str, level: str, score: float,
                         rainfall_mm: float, recent_reports: int) -> dict:
     """
     Returns a plain-language advisory for MODERATE/HIGH risk zones only.
-    Returns None for LOW/NONE — no advisory needed, no API call made.
+    Returns None for LOW/NONE (no advisory needed, no API call made).
     """
     if level not in ("MODERATE", "HIGH"):
         return {"advisory": None, "source": "not_applicable"}
@@ -45,15 +45,14 @@ async def get_advisory(zone_name: str, level: str, score: float,
 
     client = _get_client()
     if client is None:
-        # No API key configured -> graceful fallback, not a crash
-        fallback = f"{level} flood risk in {zone_name}. Avoid this route if possible."
+        fallback = f"{level} waterlogging risk at {zone_name}. Exercise caution and avoid underpass if flooded."
         return {"advisory": fallback, "source": "fallback_no_key"}
 
     prompt = (
-        f"You are a flood safety advisor for Karachi, Pakistan. "
+        f"You are an urban flood and waterlogging safety advisor for Delhi, India. "
         f"Zone: {zone_name}. Risk level: {level} ({score}/10). "
         f"Rainfall forecast: {rainfall_mm}mm. Recent hazard reports: {recent_reports}. "
-        f"Write ONE short, plain-language warning (max 25 words) a commuter would "
+        f"Write ONE short, plain-language warning (max 25 words) a Delhi commuter would "
         f"understand instantly. Be direct and practical. No preamble, just the warning."
     )
 
@@ -66,6 +65,5 @@ async def get_advisory(zone_name: str, level: str, score: float,
         _advisory_cache[cache_key] = advisory_text
         return {"advisory": advisory_text, "source": "gemini"}
     except Exception:
-        # Quota hit, network issue, etc. -> degrade gracefully
-        fallback = f"{level} flood risk in {zone_name}. Avoid this route if possible."
+        fallback = f"{level} waterlogging risk at {zone_name}. Exercise caution and avoid underpass if flooded."
         return {"advisory": fallback, "source": "fallback_error"}

@@ -1,6 +1,6 @@
 """
-Database models and setup for Karachi Flood Guard.
-Uses SQLite for local-only storage — no external DB needed for the demo.
+Database models and setup for Delhi Hazard Watch.
+Uses SQLite for local-only storage - no external DB needed for the demo.
 """
 import sqlite3
 from datetime import datetime

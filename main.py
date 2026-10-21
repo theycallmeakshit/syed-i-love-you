@@ -1,5 +1,6 @@
+import asyncio
 """
-Karachi Flood Guard — main FastAPI app.
+Delhi Hazard Watch : main FastAPI application.
 
 Agent pipeline:
   1. Weather Intake Agent   (weather_agent.fetch_rainfall_mm)
@@ -14,15 +15,19 @@ Run locally:
   open http://127.0.0.1:8000
 """
 from datetime import datetime, timedelta
+import os
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+
+load_dotenv()
 
 from models import get_connection, init_db, ReportIn, ReportOut, ZoneOut, HAZARD_TYPES
 from weather_agent import fetch_rainfall_mm, score_risk
 from advisory_agent import get_advisory
 
-app = FastAPI(title="Karachi Flood Guard", version="0.1.0")
+app = FastAPI(title="Delhi Hazard Watch", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +35,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.on_event("startup")
@@ -118,7 +132,7 @@ async def zone_risk(zone_id: str):
 async def zone_advisory(zone_id: str):
     """
     Advisory Agent, Gemini-backed. Called ONLY on user click from the
-    frontend — never from the 30s auto-refresh loop — to stay within
+    frontend (never from the 30s auto-refresh loop) to stay within
     free-tier quota. Only produces output for MODERATE/HIGH risk.
     """
     risk = await zone_risk(zone_id)
@@ -139,11 +153,21 @@ async def risk_overview():
     zones = conn.execute("SELECT * FROM zones").fetchall()
     conn.close()
 
-    results = []
-    for zone in zones:
-        result = await zone_risk(zone["id"])
-        results.append(result)
-    return results
+    results = await asyncio.gather(*[zone_risk(zone["id"]) for zone in zones])
+    return list(results)
+
+
+@app.get("/api/project-info")
+def project_info():
+    """Returns official ADGIPS Hackathon / CodeBreak 1.0 project credentials and metadata."""
+    return {
+        "project_name": os.environ.get("PROJECT_NAME", "Delhi Hazard Watch"),
+        "hackathon": "ADGIPS CodeBreak 1.0",
+        "token": os.environ.get("HACKATHON_TOKEN", ""),
+        "map_api_key": os.environ.get("MAP_API_KEY", ""),
+        "status": "active",
+        "jurisdiction": "NCT Delhi, India",
+    }
 
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

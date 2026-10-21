@@ -5,42 +5,64 @@ Honest note (keep this in mind for the demo video):
 - OpenWeatherMap gives REAL live rainfall/forecast data for Karachi.
 - "historically_flood_prone" is seeded/curated reference data, not live sensor data.
 - Risk score = live rainfall intensity x zone's historical flood-proneness.
-  This is a simple, explainable model on purpose — good enough to demonstrate
+  This is a simple, explainable model on purpose, good enough to demonstrate
   the agent pattern without pretending to have infrastructure we don't have.
 """
 import os
+import time
 import httpx
 
 OPENWEATHER_API_KEY = os.environ.get("OPENWEATHER_API_KEY", "")
 OPENWEATHER_URL = "https://api.openweathermap.org/data/2.5/forecast"
 
+_rainfall_cache: dict[str, tuple[float, float]] = {}
+
 
 async def fetch_rainfall_mm(lat: float, lng: float) -> float:
+    cache_key = f"{round(lat, 2)}:{round(lng, 2)}"
+    now = time.time()
+    if cache_key in _rainfall_cache:
+        val, t = _rainfall_cache[cache_key]
+        if now - t < 60:
+            return val
     """
-    Returns expected rainfall (mm) in the next 3-hour forecast window for a point.
-    Falls back to 0.0 (no data) instead of crashing the pipeline if the API
-    key is missing or the call fails — graceful degradation, not a hard failure.
+    Returns expected/live rainfall (mm) for a point.
+    Uses OpenWeatherMap if OPENWEATHER_API_KEY is configured.
+    Falls back to Open-Meteo keyless free API for real live rainfall data.
+    Gracefully returns 0.0 if network is unreachable without crashing.
     """
-    if not OPENWEATHER_API_KEY:
-        return 0.0
+    if OPENWEATHER_API_KEY:
+        params = {
+            "lat": lat,
+            "lon": lng,
+            "appid": OPENWEATHER_API_KEY,
+            "units": "metric",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.get(OPENWEATHER_URL, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                first_slot = data.get("list", [{}])[0]
+                rain = first_slot.get("rain", {})
+                return float(rain.get("3h", 0.0))
+        except Exception:
+            pass
 
-    params = {
-        "lat": lat,
-        "lon": lng,
-        "appid": OPENWEATHER_API_KEY,
-        "units": "metric",
-    }
+    # Free keyless fallback: Open-Meteo live precipitation
     try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current=precipitation"
         async with httpx.AsyncClient(timeout=8.0) as client:
-            resp = await client.get(OPENWEATHER_URL, params=params)
-            resp.raise_for_status()
-            data = resp.json()
-            first_slot = data.get("list", [{}])[0]
-            rain = first_slot.get("rain", {})
-            return float(rain.get("3h", 0.0))
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                current_precip = float(data.get("current", {}).get("precipitation", 0.0))
+                _rainfall_cache[cache_key] = (current_precip, now)
+                return current_precip
     except Exception:
-        # Source unavailable -> degrade gracefully, don't break the whole response
-        return 0.0
+        pass
+
+    return 0.0
 
 
 def score_risk(rainfall_mm: float, historically_flood_prone: bool, recent_reports: int) -> dict:
