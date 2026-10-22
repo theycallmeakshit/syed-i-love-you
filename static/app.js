@@ -1663,6 +1663,249 @@
     }
   };
 
+  // --- FEATURE 2: Optional Floating Login & Gated Incident Reporting ---
+  window.isUserAuthenticated = false;
+  window.pendingReportTrigger = false;
+  window.pendingReportData = null;
+
+  window.toggleAuthModal = function(show) {
+    const modal = document.getElementById('auth-modal');
+    if (modal) {
+      const isHidden = modal.classList.contains('hidden') || modal.style.display === 'none';
+      const shouldShow = (typeof show === 'boolean') ? show : isHidden;
+      if (shouldShow) {
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        setTimeout(() => {
+          const inp = document.getElementById('auth-input-field');
+          if (inp) inp.focus();
+        }, 60);
+      } else {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
+    }
+  };
+
+  window.executeMockLogin = function() {
+    const inputEl = document.getElementById('auth-input-field');
+    const input = inputEl ? inputEl.value.trim() : '';
+    if (!input) {
+      if (inputEl) inputEl.focus();
+      return;
+    }
+
+    window.isUserAuthenticated = true;
+    const statusLabel = document.getElementById('auth-status-label');
+    if (statusLabel) statusLabel.innerText = 'Verified';
+    const avatar = document.getElementById('auth-avatar-icon');
+    if (avatar) {
+      avatar.innerText = '✓';
+      avatar.className = 'w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs font-bold border border-emerald-200';
+    }
+
+    window.toggleAuthModal(false);
+
+    // If a pending report action triggered the login, open the report drawer immediately
+    if (window.pendingReportTrigger) {
+      window.pendingReportTrigger = false;
+      window.openReportDrawerDirect();
+      if (window.pendingReportData) {
+        const { lat, lng, areaName, wardId } = window.pendingReportData;
+        setTimeout(() => {
+          handlePickedCoordinates(lat, lng, wardId, areaName);
+          const descInput = document.getElementById('report-desc');
+          if (descInput && !descInput.value && areaName) {
+            descInput.value = 'Incident observed near ' + areaName + '.';
+          }
+          window.pendingReportData = null;
+        }, 150);
+      }
+    }
+  };
+
+  // Route protection for "Report Hazard"
+  window.triggerReportFlow = function() {
+    if (!window.isUserAuthenticated) {
+      window.pendingReportTrigger = true;
+      window.toggleAuthModal(true);
+      return;
+    }
+    window.openReportDrawerDirect();
+  };
+
+  window.openReportDrawerDirect = function() {
+    const drawer = document.getElementById('unified-sidebar-drawer') || document.querySelector('[data-sidebar-drawer]');
+    const backBtn = document.getElementById('drawer-back-btn');
+    const titleEl = document.getElementById('drawer-title');
+    const body = document.getElementById('drawer-body');
+
+    if (drawer) {
+      drawer.classList.add('drawer-open');
+      drawer.classList.remove('-translate-x-full');
+      drawer.style.transform = 'translateX(0)';
+    }
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (backdrop) {
+      backdrop.style.opacity = '1';
+      backdrop.style.pointerEvents = 'auto';
+    }
+
+    const views = document.querySelectorAll('[data-drawer-view]');
+    views.forEach(v => {
+      v.classList.add('hidden');
+      v.style.display = 'none';
+    });
+
+    if (backBtn) {
+      backBtn.classList.remove('hidden');
+      backBtn.style.display = 'inline-flex';
+    }
+    if (titleEl) titleEl.innerText = 'Report Local Hazard';
+
+    let targetEl = document.getElementById('drawer-view-report');
+    if (!targetEl && body) {
+      targetEl = document.createElement('div');
+      targetEl.id = 'drawer-view-report';
+      targetEl.setAttribute('data-drawer-view', 'report');
+      body.appendChild(targetEl);
+    }
+
+    state.activeTab = 'report';
+    if (targetEl) {
+      targetEl.innerHTML = renderReportFormTab();
+      attachReportFormEvents();
+      targetEl.classList.remove('hidden');
+      targetEl.style.display = 'block';
+    }
+  };
+
+  // --- FEATURE 3: Origin-to-Destination (A -> B) Navigation & Obstacle Audit ---
+  let activeRouteLayers = L.layerGroup();
+
+  window.toggleRoutePlanner = function(show) {
+    const panel = document.getElementById('route-planner-panel');
+    if (panel) {
+      const isVisible = panel.style.display !== 'none' && !panel.classList.contains('hidden');
+      const shouldShow = (typeof show === 'boolean') ? show : !isVisible;
+      if (shouldShow) {
+        panel.classList.remove('hidden');
+        panel.style.display = 'block';
+        const origInput = document.getElementById('nav-origin');
+        if (origInput && !origInput.value) {
+          if (window.userGpsMarker) {
+            origInput.value = 'Live GPS Location (You Are Here)';
+          } else {
+            origInput.value = 'Current Location (Shahdara / East Delhi)';
+          }
+        }
+        const destInput = document.getElementById('nav-destination');
+        if (destInput && !destInput.value) {
+          destInput.value = 'Connaught Place / Pragati Maidan';
+        }
+      } else {
+        panel.classList.add('hidden');
+        panel.style.display = 'none';
+      }
+    }
+  };
+
+  window.calculateFloodSafeNavigation = function() {
+    const map = state.map || window.map;
+    if (!map) return;
+    activeRouteLayers.clearLayers();
+
+    // Representative paths across Central/South Delhi
+    const blockedCoordinates = [
+      [28.6738, 77.2912], // Shahdara
+      [28.6334, 77.2230], // Minto Bridge Underpass (Critical Obstacle)
+      [28.6276, 77.2394], // Tilak Bridge
+      [28.6186, 77.2458]  // Pragati Maidan
+    ];
+
+    const safeCoordinates = [
+      [28.6738, 77.2912], // Shahdara
+      [28.6480, 77.2500], // Elevated Vikas Marg
+      [28.6310, 77.2190], // Barakhamba Elevated Corridor (Bypassing Minto)
+      [28.6186, 77.2458]  // Pragati Maidan
+    ];
+
+    // 1. Red Dotted Line (Inundated / Blocked Path)
+    const blockedPolyline = L.polyline(blockedCoordinates, {
+      color: '#ef4444',
+      weight: 4,
+      dashArray: '6, 8',
+      opacity: 0.8
+    });
+
+    // 2. Solid Emerald Line (Flood-Safe Diverted Path)
+    const safePolyline = L.polyline(safeCoordinates, {
+      color: '#059669',
+      weight: 5,
+      opacity: 0.95
+    });
+
+    activeRouteLayers.addLayer(blockedPolyline);
+    activeRouteLayers.addLayer(safePolyline);
+
+    // Add Waypoint Markers
+    const startIcon = L.divIcon({
+      className: 'custom-wp-pin',
+      html: '<div style="background:#059669;color:#fff;font-weight:900;font-size:11px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">A</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    const endIcon = L.divIcon({
+      className: 'custom-wp-pin',
+      html: '<div style="background:#e11d48;color:#fff;font-weight:900;font-size:11px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);">B</div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    activeRouteLayers.addLayer(L.marker(safeCoordinates[0], { icon: startIcon }).bindPopup('<b>Origin (A)</b><br>Shahdara Safe Node'));
+    activeRouteLayers.addLayer(L.marker(safeCoordinates[safeCoordinates.length - 1], { icon: endIcon }).bindPopup('<b>Destination (B)</b><br>Pragati Maidan Corridor'));
+
+    activeRouteLayers.addTo(map);
+
+    // Zoom to route bounds
+    map.fitBounds(safePolyline.getBounds(), { padding: [50, 50] });
+
+    // Populate Obstacle Audit Panel
+    const auditContainer = document.getElementById('route-audit-container');
+    const obstaclesList = document.getElementById('route-obstacles-list');
+    if (auditContainer) {
+      auditContainer.classList.remove('hidden');
+      auditContainer.style.display = 'block';
+    }
+
+    if (obstaclesList) {
+      obstaclesList.innerHTML = `
+        <div class="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex justify-between items-center">
+          <div>
+            <div class="font-bold">⛔ Minto Bridge Underpass</div>
+            <div class="text-[10px] text-rose-600">Surcharged (68 cm) • Critical Inundation</div>
+          </div>
+          <span class="text-[10px] font-extrabold uppercase bg-rose-100 px-1.5 py-0.5 rounded">Avoided</span>
+        </div>
+
+        <div class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 flex justify-between items-center">
+          <div>
+            <div class="font-bold">⚠️ Barapullah Drain Junction #18</div>
+            <div class="text-[10px] text-amber-600">Capacity 94% • Risk of Backflow</div>
+          </div>
+          <span class="text-[10px] font-extrabold uppercase bg-amber-100 px-1.5 py-0.5 rounded">Caution</span>
+        </div>
+
+        <div class="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex justify-between items-center">
+          <div>
+            <div class="font-bold">✓ Barakhamba Road Flyover</div>
+            <div class="text-[10px] text-emerald-600">Elevated Corridor • 0 cm Standing Water</div>
+          </div>
+          <span class="text-[10px] font-extrabold uppercase bg-emerald-100 px-1.5 py-0.5 rounded">Clear</span>
+        </div>
+      `;
+    }
+  };
+
   // Map Navigation & Reset Controls
   window.toggleFullMap = function() {
     const drawer = document.getElementById("panel-drawer");
@@ -2111,13 +2354,20 @@
 
   window.reportIncidentAtCoord = function(lat, lng, areaName, wardId) {
     window.closeInspectionCard();
-    window.switchTab("report");
+    window.pendingReportData = { lat, lng, areaName, wardId };
+    if (!window.isUserAuthenticated) {
+      window.pendingReportTrigger = true;
+      window.toggleAuthModal(true);
+      return;
+    }
+    window.openReportDrawerDirect();
     setTimeout(() => {
       handlePickedCoordinates(lat, lng, wardId, areaName);
       const descInput = document.getElementById("report-desc");
-      if (descInput && !descInput.value) {
+      if (descInput && !descInput.value && areaName) {
         descInput.value = "Incident observed near " + areaName + ".";
       }
+      window.pendingReportData = null;
     }, 150);
   };
 
@@ -3982,6 +4232,11 @@
   };
 
   function validateAndConfirmReport() {
+    if (!window.isUserAuthenticated) {
+      window.pendingReportTrigger = true;
+      window.toggleAuthModal(true);
+      return;
+    }
     const wardId = document.getElementById("report-ward-id")?.value;
     const wardSearchVal = document.getElementById("report-ward-search")?.value;
     const hazardTypeVal = document.getElementById("report-hazard-type")?.value;
@@ -5411,6 +5666,10 @@
 
   // Keep track of active view inside the same drawer
   window.switchDrawerView = function(viewName) {
+    if (viewName === 'report' && !window.isUserAuthenticated) {
+      window.triggerReportFlow();
+      return;
+    }
     const drawer = document.getElementById('unified-sidebar-drawer') || document.querySelector('[data-sidebar-drawer]');
     const backBtn = document.getElementById('drawer-back-btn');
     const titleEl = document.getElementById('drawer-title');
@@ -5539,6 +5798,10 @@
   };
 
   window.switchTab = function(tabId) {
+    if (tabId === 'report' && !window.isUserAuthenticated) {
+      window.triggerReportFlow();
+      return;
+    }
     window.switchDrawerView(tabId);
   };
 

@@ -419,8 +419,67 @@
       </div>
     </header>
 
+    <!-- Top-Right Floating Actions: Directions & Citizen Auth Profile -->
+    <div class="fixed top-4 right-4 z-[1000] flex items-center gap-2">
+      <button 
+        id="route-planner-btn" 
+        onclick="window.toggleRoutePlanner(true)" 
+        class="flex items-center gap-1.5 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md px-3.5 py-1.5 rounded-full hover:bg-slate-50 transition-all cursor-pointer text-slate-700 font-bold text-xs"
+        title="Flood-Safe Route Planner"
+      >
+        <span class="text-xs">🧭</span>
+        <span class="hidden sm:inline">Directions</span>
+      </button>
+      <button 
+        id="auth-profile-btn" 
+        onclick="window.toggleAuthModal(true)" 
+        class="flex items-center gap-2 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-md px-3.5 py-1.5 rounded-full hover:bg-slate-50 transition-all cursor-pointer"
+      >
+        <div id="auth-avatar-icon" class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-700 border border-slate-200">
+          👤
+        </div>
+        <span id="auth-status-label" class="text-xs font-bold text-slate-700">Sign In</span>
+      </button>
+    </div>
+
     <!-- Main App Workspace -->
     <main class="app-main">
+      <!-- Origin-to-Destination (A -> B) Flood-Safe Route Planner Panel -->
+      <div id="route-planner-panel" class="hidden fixed top-20 left-4 z-[1000] w-[370px] max-w-[calc(100vw-32px)] bg-white/95 backdrop-blur-xl border border-slate-200/90 shadow-2xl rounded-2xl p-4 space-y-3" style="display: none;">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm">🧭</span>
+            <span class="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Flood-Safe Route Planner</span>
+          </div>
+          <button onclick="window.toggleRoutePlanner(false)" class="text-xs text-slate-400 hover:text-slate-700 font-bold cursor-pointer">✕</button>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+            <span class="w-5 text-center text-xs font-extrabold text-emerald-600">A</span>
+            <input id="nav-origin" type="text" placeholder="Origin (Default: Current GPS Location)" class="bg-transparent text-xs w-full focus:outline-none text-slate-800" />
+          </div>
+          <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+            <span class="w-5 text-center text-xs font-extrabold text-rose-600">B</span>
+            <input id="nav-destination" type="text" placeholder="Destination (e.g. Connaught Place, AIIMS)" class="bg-transparent text-xs w-full focus:outline-none text-slate-800" />
+          </div>
+        </div>
+
+        <button onclick="window.calculateFloodSafeNavigation()" class="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-700 transition-all shadow-sm cursor-pointer">
+          Compute Flood-Safe Path
+        </button>
+
+        <!-- Obstacle & Corridor Breakdown -->
+        <div id="route-audit-container" class="hidden space-y-2.5 pt-2 border-t border-slate-100" style="display: none;">
+          <div class="flex justify-between items-center">
+            <span class="font-extrabold text-slate-900 text-xs" id="route-metric-eta">26 mins (11.8 km)</span>
+            <span class="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">Clear • 0 cm Water</span>
+          </div>
+
+          <div class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">En-Route Infrastructure Audit:</div>
+          <div id="route-obstacles-list" class="space-y-1.5 text-xs max-h-48 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
       <!-- Google Maps-Style Floating Search & Quick-Filter Bar -->
       <div class="absolute top-4 left-4 right-4 z-[1000] flex items-center gap-3 pointer-events-none">
         <!-- Search Input Pill -->
@@ -455,7 +514,7 @@
 
         <!-- Horizontal Filter Pills (Scrollable) -->
         <div class="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          <button onclick="window.switchTab('report')" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-blue-500/80 text-blue-600 shadow-sm text-xs font-semibold hover:bg-blue-50 transition-all shrink-0 cursor-pointer">
+          <button onclick="window.triggerReportFlow()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-blue-500/80 text-blue-600 shadow-sm text-xs font-semibold hover:bg-blue-50 transition-all shrink-0 cursor-pointer">
             <svg class="w-3.5 h-3.5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
@@ -470,7 +529,7 @@
           <button id="btn-drainage-toggle" onclick="window.toggleDrainageNetwork()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-slate-200/80 text-slate-700 shadow-sm text-xs font-medium hover:bg-slate-50 transition-all shrink-0 cursor-pointer">
             🌊 Drainage Network
           </button>
-          <button id="btn-saferoute-toggle" onclick="window.toggleSafeRouteDemo()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-emerald-500/80 text-emerald-700 shadow-sm text-xs font-semibold hover:bg-emerald-50 transition-all shrink-0 cursor-pointer">
+          <button id="btn-saferoute-toggle" onclick="window.toggleRoutePlanner()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-emerald-500/80 text-emerald-700 shadow-sm text-xs font-semibold hover:bg-emerald-50 transition-all shrink-0 cursor-pointer">
             🚗 Safe Route Demo
           </button>
           <button onclick="window.flyToYamunaCorridor()" class="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-white/95 backdrop-blur-md border border-slate-200/80 text-slate-700 shadow-sm text-xs font-medium hover:bg-slate-50 transition-all shrink-0 cursor-pointer">
@@ -624,7 +683,7 @@
 
   <!-- Official Leaflet CDN (leafletjs.com/download.html) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/app.js?v=4.9"></script>
+  <script src="/app.js?v=5.0"></script>
   <style>
     @keyframes modalIn {
       0% {
@@ -821,5 +880,32 @@
     // Initial fallback telemetry loader (GPS tracker handles live position & updates dynamically)
     fetchLiveTelemetry(28.6139, 77.2090);
   </script>
+  <!-- FEATURE 2: Verified Citizen Reporter Sign-In Modal -->
+  <div id="auth-modal" class="fixed inset-0 z-[4000] bg-slate-900/40 backdrop-blur-sm hidden items-center justify-center p-4" style="display: none;">
+    <div class="bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 max-w-sm w-full space-y-4 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex justify-between items-center">
+        <h3 class="text-base font-extrabold text-slate-800">Verified Citizen Reporter</h3>
+        <button onclick="window.toggleAuthModal(false)" class="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer">✕</button>
+      </div>
+      <p class="text-xs text-slate-500 leading-relaxed">
+        Sign in to submit verified reports of waterlogged underpasses, road blocks, or overflowing drains. Map views and routing remain open to everyone.
+      </p>
+      <div class="space-y-3">
+        <input 
+          id="auth-input-field" 
+          type="text" 
+          placeholder="Mobile Number or Email" 
+          onkeydown="if(event.key==='Enter') window.executeMockLogin()"
+          class="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-slate-900 bg-slate-50 focus:bg-white transition-all text-slate-800"
+        />
+        <button 
+          onclick="window.executeMockLogin()" 
+          class="w-full py-2.5 rounded-xl bg-slate-900 text-white font-bold text-xs hover:bg-slate-800 transition-colors cursor-pointer shadow-sm"
+        >
+          Continue as Reporter
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
