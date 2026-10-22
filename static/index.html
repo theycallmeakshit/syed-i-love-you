@@ -342,6 +342,22 @@
       box-shadow: 0 0 8px #059669 !important;
     }
 
+    /* High-Visibility Animated Pulse for Live User GPS Pin */
+    @keyframes ping {
+      0% {
+        transform: scale(0.6);
+        opacity: 0.95;
+      }
+      70%, 100% {
+        transform: scale(2.4);
+        opacity: 0;
+      }
+    }
+    .user-live-gps-pin {
+      background: transparent !important;
+      border: none !important;
+    }
+
     .theme-toggle-btn {
       background: #f1f5f9 !important;
       border: 1px solid #e2e8f0 !important;
@@ -498,6 +514,9 @@
         <button class="map-control-btn" onclick="window.zoomOutMap()" title="Zoom Out" aria-label="Zoom Out">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
+        <button class="map-control-btn" onclick="window.flyToUserLocation()" title="My Live Location (GPS)" aria-label="My Live Location">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+        </button>
         <button class="map-control-btn" onclick="window.resetMapToDelhi()" title="Reset Center to Delhi NCR" aria-label="Reset Map Center">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>
         </button>
@@ -605,7 +624,7 @@
 
   <!-- Official Leaflet CDN (leafletjs.com/download.html) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/app.js?v=4.8"></script>
+  <script src="/app.js?v=4.9"></script>
   <style>
     @keyframes modalIn {
       0% {
@@ -799,46 +818,8 @@
       }
     }
 
-    // Geolocation trigger
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          try {
-            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
-            const data = await res.json();
-            const addr = data.address || {};
-            const locality = addr.suburb || addr.neighbourhood || addr.residential || "Nand Nagri";
-            const district = addr.state_district || addr.city || "North East Delhi";
-            
-            const areaEl = document.getElementById('modal-user-area');
-            const subEl = document.getElementById('modal-sub-locality');
-            if (areaEl) areaEl.innerText = locality;
-            if (subEl) subEl.innerText = `${district} • Auto-Detected via GPS`;
-            
-            fetchLiveTelemetry(lat, lon);
-            const m = window.map || (window.state && window.state.map);
-            if (m) {
-              // Only re-center if user coordinates are within Delhi NCR bounds
-              if (lat >= 28.3 && lat <= 28.9 && lon >= 76.8 && lon <= 77.5) {
-                m.setView([lat, lon], 13);
-              } else {
-                // Keep Delhi NCR center for devtunnels and external users
-                m.setView([28.6139, 77.2090], 11);
-              }
-            }
-          } catch (err) {
-            fetchLiveTelemetry(28.694, 77.307);
-          }
-        },
-        () => {
-          fetchLiveTelemetry(28.694, 77.307);
-        }
-      );
-    } else {
-      fetchLiveTelemetry(28.694, 77.307);
-    }
+    // Initial fallback telemetry loader (GPS tracker handles live position & updates dynamically)
+    fetchLiveTelemetry(28.6139, 77.2090);
   </script>
 </body>
 </html>

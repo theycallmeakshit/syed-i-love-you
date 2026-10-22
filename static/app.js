@@ -25,6 +25,8 @@
     utm: {},
     mapApiKey: "",
     map: null,
+    userGpsMarker: null,
+    userAccuracyCircle: null,
     tileLayer: null,
     tileLabelsLayer: null,
     radarLayer: null,
@@ -1372,6 +1374,8 @@
       zoom: 11,
       zoomControl: false
     });
+    window.map = state.map;
+    window.state = state;
 
     updateMapTiles();
 
@@ -1403,6 +1407,7 @@
     });
 
     initTelemetryLayers();
+    initUserLocationTracker();
   }
 
   function initTelemetryLayers() {
@@ -1542,6 +1547,121 @@
 
     setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 200);
   }
+
+  // --- Robust GPS Engine & Prominent Live User Location Marker ---
+  let userGpsMarker = null;
+  let userAccuracyCircle = null;
+
+  function initUserLocationTracker() {
+    const map = state.map || window.map;
+    if (!map) {
+      console.warn("Map not ready yet for location tracker.");
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      console.warn("Geolocation is not supported by this browser.");
+      return;
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 12000,
+      maximumAge: 0
+    };
+
+    navigator.geolocation.watchPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+
+        // Smoothly pan map to user coordinates on first fetch
+        if (!userGpsMarker) {
+          map.flyTo([lat, lng], 15, { duration: 1.5 });
+        }
+
+        // Update or create accuracy halo circle
+        if (userAccuracyCircle) {
+          userAccuracyCircle.setLatLng([lat, lng]).setRadius(accuracy);
+        } else {
+          userAccuracyCircle = L.circle([lat, lng], {
+            radius: accuracy,
+            color: '#3b82f6',
+            weight: 1,
+            fillColor: '#60a5fa',
+            fillOpacity: 0.15
+          }).addTo(map);
+        }
+
+        // Prominent Animated Live User Marker
+        const bigUserIcon = L.divIcon({
+          className: 'user-live-gps-pin',
+          html: `
+            <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 50px; height: 50px;">
+              <div style="position: absolute; width: 44px; height: 44px; border-radius: 50%; background: rgba(37, 99, 235, 0.25); border: 2px solid rgba(37, 99, 235, 0.5); animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+              <div style="width: 22px; height: 22px; border-radius: 50%; background: #2563eb; border: 3px solid #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.35); z-index: 10;"></div>
+            </div>
+          `,
+          iconSize: [50, 50],
+          iconAnchor: [25, 25]
+        });
+
+        if (userGpsMarker) {
+          userGpsMarker.setLatLng([lat, lng]);
+        } else {
+          userGpsMarker = L.marker([lat, lng], { icon: bigUserIcon, zIndexOffset: 3000 }).addTo(map);
+          userGpsMarker.bindPopup(`
+            <div style="font-family: system-ui, sans-serif; padding: 4px;">
+              <span style="font-size: 10px; font-weight: 800; color: #2563eb; text-transform: uppercase;">Live Position</span>
+              <h4 style="font-size: 13px; font-weight: 800; color: #0f172a; margin: 2px 0;">You Are Here</h4>
+              <p style="font-size: 11px; color: #64748b; margin: 0;">Accuracy: &plusmn;${Math.round(accuracy)}m</p>
+            </div>
+          `);
+        }
+
+        state.userGpsMarker = userGpsMarker;
+        state.userAccuracyCircle = userAccuracyCircle;
+        window.userGpsMarker = userGpsMarker;
+        window.userAccuracyCircle = userAccuracyCircle;
+
+        // Auto-update arrival modal telemetry and reverse geocode
+        if (typeof fetchLiveTelemetry === 'function') {
+          fetchLiveTelemetry(lat, lng);
+        }
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+          .then(res => res.json())
+          .then(data => {
+            const addr = data.address || {};
+            const locality = addr.suburb || addr.neighbourhood || addr.residential || "Nand Nagri";
+            const district = addr.state_district || addr.city || "North East Delhi";
+            const areaEl = document.getElementById('modal-user-area');
+            const subEl = document.getElementById('modal-sub-locality');
+            if (areaEl) areaEl.innerText = locality;
+            if (subEl) subEl.innerText = `${district} • Auto-Detected via GPS`;
+          })
+          .catch(() => {});
+      },
+      (err) => {
+        console.warn("GPS Location fetch failed:", err.message);
+        // Fallback safely to Central Delhi if location is denied or times out
+        if (!userGpsMarker) {
+          map.setView([28.6139, 77.2090], 12);
+        }
+      },
+      options
+    );
+  }
+
+  window.initUserLocationTracker = initUserLocationTracker;
+  window.flyToUserLocation = function() {
+    if (userGpsMarker && state.map) {
+      state.map.flyTo(userGpsMarker.getLatLng(), 16, { duration: 1.2 });
+      userGpsMarker.openPopup();
+    } else {
+      initUserLocationTracker();
+    }
+  };
 
   // Map Navigation & Reset Controls
   window.toggleFullMap = function() {
