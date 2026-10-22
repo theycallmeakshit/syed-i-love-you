@@ -27,7 +27,7 @@ from models import get_connection, init_db, ReportIn, ReportOut, ZoneOut, HAZARD
 from weather_agent import fetch_rainfall_mm, score_risk
 from advisory_agent import get_advisory
 
-app = FastAPI(title="Delhi Hazard Watch", version="1.0.0")
+app = FastAPI(title="Delhi Hazard Watch | syed-i-love-you", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -169,7 +169,7 @@ async def risk_overview():
 def project_info():
     """Returns official ADGIPS Hackathon / CodeBreak 1.0 project credentials and metadata."""
     return {
-        "project_name": os.environ.get("PROJECT_NAME", "Delhi Hazard Watch"),
+        "project_name": os.environ.get("PROJECT_NAME", "Delhi Hazard Watch | syed-i-love-you"),
         "hackathon": "ADGIPS CodeBreak 1.0",
         "token": os.environ.get("HACKATHON_TOKEN", ""),
         "map_api_key": os.environ.get("MAP_API_KEY", ""),
